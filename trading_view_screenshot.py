@@ -140,18 +140,28 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", outp
         return filename
 
 async def main():
-    # You can modify these parameters as needed
+    # Base parameters
     ticker = "OANDA:EURUSD"
-    interval = "60"  # 60 = 1 hour, 240 = 4 hours, D = 1 day
     zoom_intensity = 1.5  # Adjust this value to increase/decrease zoom
     
-    # Take screenshot with mouse wheel zoom
-    await take_tradingview_screenshot(
-        ticker=ticker, 
-        interval=interval, 
-        zoom_intensity=zoom_intensity,
-        filename_suffix="wheel_zoom"
-    )
+    # Array of intervals to capture
+    intervals = ["60", "240"]
+    interval_names = {
+        "60": "1H",
+        "240": "4H",
+    }
+    
+    # Capture screenshots for each interval
+    for interval in intervals:
+        print(f"\n=== TAKING SCREENSHOT FOR {interval_names[interval]} TIMEFRAME ===")
+        await take_tradingview_screenshot(
+            ticker=ticker, 
+            interval=interval, 
+            zoom_intensity=zoom_intensity,
+            filename_suffix=interval_names[interval]
+        )
+    
+    print("\nAll screenshots have been saved.")
 
 if __name__ == "__main__":
     asyncio.run(main()) 
