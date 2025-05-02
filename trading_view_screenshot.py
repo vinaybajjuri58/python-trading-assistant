@@ -4,13 +4,13 @@ import os
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-async def take_tradingview_screenshot(ticker="OANDA:EURUSD", timeframe="1H", output_dir="screenshots",interval=60):
+async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", output_dir="screenshots"):
     """
-    Takes a screenshot of a TradingView chart for a specific ticker and timeframe.
+    Takes a screenshot of a TradingView chart for a specific ticker and interval.
     
     Args:
         ticker (str): The ticker symbol to capture (e.g., "NASDAQ:AAPL", "BINANCE:BTCUSDT")
-        timeframe (str): The timeframe to set (e.g., "1H", "4H", "1D")
+        interval (str): The timeframe interval to set (e.g., "60" for 1H, "240" for 4H, "D" for 1D)
         output_dir (str): Directory to save screenshots
     """
     # Create output directory if it doesn't exist
@@ -18,7 +18,7 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", timeframe="1H", out
     
     # Format current timestamp for filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{output_dir}/{ticker.replace(':', '_')}_{timeframe}_{timestamp}.png"
+    filename = f"{output_dir}/{ticker.replace(':', '_')}_{interval}_{timestamp}.png"
     
     # Launch browser
     async with async_playwright() as p:
@@ -31,7 +31,7 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", timeframe="1H", out
         # Create a new page
         page = await context.new_page()
         
-        # Navigate to TradingView chart with the specified ticker
+        # Navigate to TradingView chart with the specified ticker and interval
         encoded_ticker = ticker.replace(":", "%3A")
         url = f"https://www.tradingview.com/chart/?symbol={encoded_ticker}&interval={interval}"
         
@@ -49,29 +49,8 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", timeframe="1H", out
         except:
             print("No cookie dialog found or already closed")
         
-        # Set timeframe
-        print(f"Setting timeframe to {timeframe}...")
-        try:
-            # Click on the current timeframe button
-            await page.click("button.menuButton-Hj6U1eUe.button-Hj6U1eUe.apply-common-tooltip.common-tooltip-vertical", timeout=10000)
-            
-            # Wait for the dropdown to appear
-            await page.wait_for_selector("div.menuBoxContainer-Hj6U1eUe", timeout=10000)
-            
-            # Click on the specified timeframe
-            await page.click(f"div[data-value='{timeframe}']", timeout=10000)
-            
-            # Wait for the chart to update
-            await asyncio.sleep(3)
-        except Exception as e:
-            print(f"Error setting timeframe: {e}")
-            # Try alternative method
-            try:
-                # Some versions of TradingView have different UI elements
-                await page.click(f"div[data-role='button']:has-text('{timeframe}')")
-                await asyncio.sleep(3)
-            except:
-                print("Could not set timeframe, using default")
+        # Wait for chart to fully render
+        await asyncio.sleep(3)
         
         # Take screenshot
         print(f"Taking screenshot and saving to {filename}...")
@@ -86,9 +65,9 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", timeframe="1H", out
 async def main():
     # You can modify these parameters as needed
     ticker = "OANDA:EURUSD"
-    timeframe = "1H"
-    interval = "60"
-    await take_tradingview_screenshot(ticker, timeframe, interval)
+    interval = "60"  # 60 = 1 hour, 240 = 4 hours, D = 1 day
+    
+    await take_tradingview_screenshot(ticker, interval)
 
 if __name__ == "__main__":
     asyncio.run(main()) 
