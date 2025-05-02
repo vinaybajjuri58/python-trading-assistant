@@ -4,7 +4,9 @@ import os
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", output_dir="screenshots", candles_to_show=40):
+async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", output_dir="screenshots", 
+                                      candles_to_show=40, zoom_method="both", debug_screenshots=False,
+                                      zoom_intensity=1.5):
     """
     Takes a screenshot of a TradingView chart for a specific ticker and interval.
     
@@ -13,6 +15,9 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", outp
         interval (str): The timeframe interval to set (e.g., "60" for 1H, "240" for 4H, "D" for 1D)
         output_dir (str): Directory to save screenshots
         candles_to_show (int): Approximate number of candles to show in the view
+        zoom_method (str): Specify which zoom method to use - "wheel", "keyboard", or "both"
+        debug_screenshots (bool): Take screenshots after each zoom method to see which one works
+        zoom_intensity (float): Multiplier for zoom intensity (1.0 = default, 2.0 = double zoom)
     """
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -21,13 +26,17 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", outp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{output_dir}/{ticker.replace(':', '_')}_{interval}_{timestamp}.png"
     
+    # Calculate zoom iterations based on intensity
+    wheel_iterations = int(15 * zoom_intensity)  # Increased from 10 to 15 as baseline
+    keyboard_iterations = int(12 * zoom_intensity)  # Increased from 8 to 12 as baseline
+    wheel_delta = -150  # Increased from -120 for stronger zoom per iteration
+    
     # Launch browser
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36",
-            has_touch=True  # Enable touch events for pinch-to-zoom
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36"
         )
         
         # Create a new page
@@ -77,90 +86,77 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", outp
                 
                 # Press End key to ensure we're at the latest candles
                 await page.keyboard.press("End")
-                await asyncio.sleep(1)
+                await asyncio.sleep(1.5)
                 
-                # Simulate pinch-to-zoom gesture
-                print("Applying zoom to focus on recent candles...")
+                # Take a pre-zoom screenshot if in debug mode
+                if debug_screenshots:
+                    await page.screenshot(path=f"{output_dir}/{ticker.replace(':', '_')}_{interval}_{timestamp}_before_zoom.png")
+                    print(f"Saved pre-zoom screenshot for comparison")
                 
-                # Try multiple zooming methods
+                print(f"Applying zoom to focus on recent candles (intensity: {zoom_intensity}x)...")
                 
-                # Method 1: Use touchscreen pinch-to-zoom
-                try:
-                    # Start with fingers together at center
-                    await page.touchscreen.tap(center_x, center_y)
-                    await asyncio.sleep(0.5)
-                    
-                    # Perform multiple pinch-out gestures to zoom in
-                    for i in range(8):  # Adjust number based on testing
-                        # Simulate pinch-to-zoom gesture (spreading two fingers)
-                        await page.evaluate("""() => {
-                            const chartElement = document.querySelector('.chart-container') || 
-                                               document.querySelector('.chart-markup-table') || 
-                                               document.querySelector('.chart-gui-wrapper');
-                            if (chartElement) {
-                                const rect = chartElement.getBoundingClientRect();
-                                const centerX = rect.left + rect.width / 2;
-                                const centerY = rect.top + rect.height / 2;
+                # Method 1: Use mousewheel zoom
+                if zoom_method in ["wheel", "both"]:
+                    print(f"Trying MOUSE WHEEL method with {wheel_iterations} iterations...")
+                    try:
+                        # Move mouse to chart center
+                        await page.mouse.move(center_x, center_y)
+                        
+                        # Use mouse wheel to zoom in (negative values zoom in)
+                        for i in range(wheel_iterations):
+                            await page.mouse.wheel(0, wheel_delta)
+                            print(f"  Wheel zoom {i+1}/{wheel_iterations} applied")
+                            
+                            # Progressively increase delay between zooms to let chart respond
+                            delay = 0.3 + (i / wheel_iterations * 0.2)  # 0.3 to 0.5 second
+                            await asyncio.sleep(delay)
+                            
+                            # Every few iterations, click to ensure focus remains on chart
+                            if i % 5 == 4:
+                                await page.mouse.click(center_x, center_y)
+                                await asyncio.sleep(0.5)
                                 
-                                // Create touch events
-                                const touchStart = new TouchEvent('touchstart', {
-                                    bubbles: true,
-                                    touches: [
-                                        new Touch({identifier: 0, target: chartElement, clientX: centerX - 20, clientY: centerY}),
-                                        new Touch({identifier: 1, target: chartElement, clientX: centerX + 20, clientY: centerY})
-                                    ]
-                                });
-                                
-                                const touchMove = new TouchEvent('touchmove', {
-                                    bubbles: true,
-                                    touches: [
-                                        new Touch({identifier: 0, target: chartElement, clientX: centerX - 100, clientY: centerY}),
-                                        new Touch({identifier: 1, target: chartElement, clientX: centerX + 100, clientY: centerY})
-                                    ]
-                                });
-                                
-                                const touchEnd = new TouchEvent('touchend', {
-                                    bubbles: true,
-                                    touches: []
-                                });
-                                
-                                // Dispatch the events
-                                chartElement.dispatchEvent(touchStart);
-                                chartElement.dispatchEvent(touchMove);
-                                chartElement.dispatchEvent(touchEnd);
-                            }
-                        }""")
+                        print("✓ MOUSE WHEEL method completed successfully")
+                        
+                        # Take interim screenshot if in debug mode
+                        if debug_screenshots:
+                            await page.screenshot(path=f"{output_dir}/{ticker.replace(':', '_')}_{interval}_{timestamp}_after_wheel.png")
+                            print(f"Saved post-wheel screenshot")
+                    except Exception as e:
+                        print(f"✗ MOUSE WHEEL method failed: {e}")
+                
+                # Method 2: Use keyboard shortcuts
+                if zoom_method in ["keyboard", "both"]:
+                    print(f"Trying KEYBOARD SHORTCUT method with {keyboard_iterations} iterations...")
+                    try:
+                        # Click to ensure chart has focus before keyboard shortcuts
+                        await page.mouse.click(center_x, center_y)
                         await asyncio.sleep(0.5)
-                except Exception as e:
-                    print(f"Pinch-to-zoom gesture failed: {e}")
-                
-                # Method 2: Use mousewheel zoom as backup
-                try:
-                    # Move mouse to chart center
-                    await page.mouse.move(center_x, center_y)
-                    
-                    # Use mouse wheel to zoom in (negative values zoom in)
-                    for i in range(10):
-                        await page.mouse.wheel(0, -120)
-                        await asyncio.sleep(0.3)
-                except Exception as e:
-                    print(f"Mouse wheel zoom failed: {e}")
-                
-                # Method 3: Use keyboard shortcuts as a last resort
-                try:
-                    await page.keyboard.down("Control")  # or Command on Mac
-                    for i in range(8):
-                        await page.keyboard.press("+")
-                        await asyncio.sleep(0.3)
-                    await page.keyboard.up("Control")
-                except Exception as e:
-                    print(f"Keyboard zoom failed: {e}")
+                        
+                        await page.keyboard.down("Control")  # or Command on Mac
+                        for i in range(keyboard_iterations):
+                            await page.keyboard.press("+")
+                            print(f"  Keyboard zoom {i+1}/{keyboard_iterations} applied")
+                            
+                            # Progressively increase delay between zooms
+                            delay = 0.3 + (i / keyboard_iterations * 0.3)  # 0.3 to 0.6 second
+                            await asyncio.sleep(delay)
+                            
+                        await page.keyboard.up("Control")
+                        print("✓ KEYBOARD SHORTCUT method completed successfully")
+                        
+                        # Take interim screenshot if in debug mode
+                        if debug_screenshots:
+                            await page.screenshot(path=f"{output_dir}/{ticker.replace(':', '_')}_{interval}_{timestamp}_after_keyboard.png")
+                            print(f"Saved post-keyboard screenshot")
+                    except Exception as e:
+                        print(f"✗ KEYBOARD SHORTCUT method failed: {e}")
         
         # Wait a moment for zoom actions to complete
-        await asyncio.sleep(3)
+        await asyncio.sleep(4)
         
         # Take screenshot
-        print(f"Taking screenshot and saving to {filename}...")
+        print(f"Taking final screenshot and saving to {filename}...")
         await page.screenshot(path=filename)
         
         # Close browser
@@ -174,7 +170,16 @@ async def main():
     ticker = "OANDA:EURUSD"
     interval = "60"  # 60 = 1 hour, 240 = 4 hours, D = 1 day
     
-    await take_tradingview_screenshot(ticker, interval, candles_to_show=40)
+    # Choose which zoom method to use:
+    # zoom_method options: "wheel", "keyboard", or "both"
+    await take_tradingview_screenshot(
+        ticker=ticker, 
+        interval=interval, 
+        candles_to_show=40,
+        zoom_method="both",  # Use both methods for best results
+        debug_screenshots=False,  # Set to True to get before/after screenshots
+        zoom_intensity=1.5  # Adjust this value to increase/decrease zoom (1.0 = default, 2.0 = double)
+    )
 
 if __name__ == "__main__":
     asyncio.run(main()) 
