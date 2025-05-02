@@ -7,6 +7,7 @@ A Python script that automates taking screenshots of TradingView charts for spec
 - Capture screenshots of any ticker available on TradingView
 - Set custom intervals (60 for 1H, 240 for 4H, D for 1D, etc.)
 - Automatic handling of cookie/consent dialogs
+- Zoom functionality to focus on the most recent candles
 - Timestamped filenames for easy organization
 
 ## Prerequisites
@@ -33,15 +34,15 @@ Run the script with default parameters (OANDA:EURUSD on 1H timeframe):
 python trading_view_screenshot.py
 ```
 
-To modify the ticker or interval, edit the `main()` function in the script or import and use the function in your own code:
+To modify the ticker, interval, or number of candles to show, edit the `main()` function in the script or import and use the function in your own code:
 
 ```python
 import asyncio
 from trading_view_screenshot import take_tradingview_screenshot
 
 async def custom_screenshot():
-    # Take a screenshot of Bitcoin on 4H timeframe
-    await take_tradingview_screenshot(ticker="BINANCE:BTCUSDT", interval="240")
+    # Take a screenshot of Bitcoin on 4H timeframe showing ~30 candles
+    await take_tradingview_screenshot(ticker="BINANCE:BTCUSDT", interval="240", candles_to_show=30)
 
 if __name__ == "__main__":
     asyncio.run(custom_screenshot())
@@ -70,3 +71,5 @@ if __name__ == "__main__":
 - The script uses headless mode by default. Set `headless=False` in the `launch()` method if you want to see the browser.
 - Screenshot files are saved in a `screenshots` directory by default.
 - The script uses TradingView's URL parameters to set the interval directly, avoiding UI interaction issues.
+- The zoom functionality attempts multiple methods to show approximately the requested number of candles, but results may vary based on the specific chart.
+- You may need to adjust the zoom parameters (number of zoom steps) based on your specific needs.
