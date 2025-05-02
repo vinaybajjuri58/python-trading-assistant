@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 import asyncio
 import os
+import base64
+import json
+import requests
 from datetime import datetime
 from playwright.async_api import async_playwright
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Set your OpenAI API key here or use environment variable
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")  # Replace with your API key if not using env var
 
 async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", output_dir="screenshots", 
                                       candles_to_show=40, debug_screenshots=False,
@@ -139,6 +148,88 @@ async def take_tradingview_screenshot(ticker="OANDA:EURUSD", interval="60", outp
         print(f"Screenshot saved: {filename}")
         return filename
 
+def analyze_chart_with_openai(image_path, timeframe):
+    """
+    Send the chart image to OpenAI API for analysis, specifically checking for FVG (Fair Value Gap).
+    
+    Args:
+        image_path (str): Path to the screenshot image
+        timeframe (str): Timeframe of the chart (e.g., "1H", "4H")
+        
+    Returns:
+        dict: The API response containing the analysis
+    """
+    if not OPENAI_API_KEY:
+        print("Warning: OpenAI API key not found. Set OPENAI_API_KEY environment variable or update the script.")
+        return {"error": "API key not set"}
+    
+    # Read and encode the image
+    with open(image_path, "rb") as image_file:
+        encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
+    
+    # Set up the API request
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {OPENAI_API_KEY}"
+    }
+    
+    # Prepare the prompt for FVG analysis
+    prompt = f"""
+    Analyze this TradingView chart ({timeframe} timeframe) and identify if there are any Fair Value Gaps (FVGs) visible.
+    Then determine if the recent price action has tapped or filled any FVG.
+    
+    A Fair Value Gap (FVG) is formed when the low of a candle is higher than the high of the candle two positions before it (bullish FVG),
+    or when the high of a candle is lower than the low of the candle two positions before it (bearish FVG).
+    
+    Please provide:
+    1. Whether you can identify any FVGs on the chart
+    2. If there are FVGs, whether the recent price has tapped into or filled any of them
+    3. The direction of the FVG (bullish or bearish)
+    4. The approximate price level of the identified FVG
+    """
+    
+    # Build the API request payload
+    payload = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{encoded_image}"
+                        }
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 500
+    }
+    
+    # Make the API request
+    try:
+        print(f"Sending chart to OpenAI for FVG analysis ({timeframe} timeframe)...")
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+        response_data = response.json()
+        
+        if "error" in response_data:
+            print(f"API Error: {response_data['error']['message']}")
+            return response_data
+        
+        # Extract and print the analysis
+        analysis = response_data["choices"][0]["message"]["content"]
+        print(f"\n=== FVG ANALYSIS FOR {timeframe} TIMEFRAME ===")
+        print(analysis)
+        print("=" * 50)
+        
+        return {"timeframe": timeframe, "analysis": analysis, "full_response": response_data}
+    
+    except Exception as e:
+        print(f"Error calling OpenAI API: {e}")
+        return {"error": str(e)}
+
 async def main():
     # Base parameters
     ticker = "OANDA:EURUSD"
@@ -151,17 +242,42 @@ async def main():
         "240": "4H",
     }
     
+    # Store screenshots and analyses
+    screenshot_paths = []
+    analysis_results = []
+    
     # Capture screenshots for each interval
     for interval in intervals:
         print(f"\n=== TAKING SCREENSHOT FOR {interval_names[interval]} TIMEFRAME ===")
-        await take_tradingview_screenshot(
+        screenshot_path = await take_tradingview_screenshot(
             ticker=ticker, 
             interval=interval, 
             zoom_intensity=zoom_intensity,
             filename_suffix=interval_names[interval]
         )
+        screenshot_paths.append((screenshot_path, interval_names[interval]))
     
     print("\nAll screenshots have been saved.")
+    
+    # Analyze each screenshot with OpenAI
+    if OPENAI_API_KEY:
+        print("\n=== ANALYZING SCREENSHOTS FOR FVG PATTERNS ===")
+        for path, timeframe in screenshot_paths:
+            # Analyze one screenshot at a time
+            result = analyze_chart_with_openai(path, timeframe)
+            analysis_results.append(result)
+            
+            # Wait a bit between API calls to avoid rate limits
+            await asyncio.sleep(2)
+        
+        # Save the analysis results to a JSON file
+        results_file = f"screenshots/fvg_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(results_file, "w") as f:
+            json.dump(analysis_results, f, indent=2)
+        print(f"\nAnalysis results saved to {results_file}")
+    else:
+        print("\nSkipping OpenAI analysis because API key is not set.")
+        print("Set your OpenAI API key in the script or as an environment variable (OPENAI_API_KEY).")
 
 if __name__ == "__main__":
     asyncio.run(main()) 
